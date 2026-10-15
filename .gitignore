@@ -21,9 +21,16 @@ native/include/
 
 # === OSG lib build outputs ===
 osg_lib/native/
+osgverse_lib/build/
+osgverse_lib/native/
 
 # === Assembled distribution ===
 dist/
+
+# === JVM crash dumps (native 崩溃时由 JVM 生成) ===
+hs_err_pid*.log
+replay_pid*.log
+core.*
 
 # === IDE / OS ===
 .vscode/

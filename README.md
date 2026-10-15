@@ -202,9 +202,10 @@ cpplib-template/
 ├─ tools/build.sh                       Linux/macOS 一键构建 + 冒烟测试 + 安装（推荐入口）
 ├─ tools/jnitest/                       命令行冒烟测试源码
 ├─ native/<os>-<arch>/                  CMake 产物输出目录（.so / .dll）
-├─ examples/                            三个 Processing 示例（含 osglib 的 CppOsgViewer）
+├─ examples/                            Processing 示例（含 osglib / osgverselib 的示例）
 ├─ library.properties / release.properties  发布元数据
 ├─ osg_lib/                             OpenSceneGraph 集成库（见第 6 节）
+├─ osgverse_lib/                        osgVerse 集成库：PBR 延迟渲染 + 数字地球（见第 7 节）
 └─ build.gradle.kts                     Gradle 发布脚本（可选）
 ```
 
@@ -335,4 +336,138 @@ Processing（P2D/P3D）和 OSG 共用同一个 GL 上下文，两者都会缓存
 
 > 注意：由于 OSG 直接渲染到当前 GL 上下文，`size()` 必须使用 `P2D` 或 `P3D`；
 > 默认渲染器（无 OpenGL）无法承载 OSG。
+
+---
+
+## 7. osgverse_lib —— 在 Processing 窗口里跑 osgVerse（PBR 延迟渲染 / 数字地球）
+
+`osgverse_lib/` 建立在 `osg_lib` 的同一套思路上（`GraphicsWindowEmbedded` + 每帧
+`viewer.frame()`，GL 上下文完全交给 Processing），但把渲染管线换成了 **osgVerse**
+的 `osgVerse::Pipeline`，因此可以直接复用 osgVerse 的 PBR 材质、延迟渲染、阴影、
+SSAO、泛光、色调映射、HDR 天空盒，以及 TMS 数字地球插件。
+
+### 7.1 前置条件
+
+- **osgVerse 的 GLCORE SDK**：目录里同时有 osgVerse 和 OpenSceneGraph 的头文件与
+  库（`include/osgVerse/`、`lib/libosgVerse*.so`、`lib/cmake/osgVerse/`、
+  `shaders/`、`skyboxes/`、`misc/`、`models/`）。默认探测
+  `~/Public/osgverse/build/sdk_core`，可用 `--osgverse-sdk <path>` 指定。
+- 其余（Processing / JDK / CMake / 编译器）与第 1 节相同。
+
+### 7.2 构建
+
+```bash
+bash osgverse_lib/build.sh
+# 指定 SDK 路径 / 只打包不安装 / 只重装 Java
+bash osgverse_lib/build.sh --osgverse-sdk /path/to/sdk_core --skip-install
+bash osgverse_lib/build.sh --skip-native
+```
+
+脚本流程：`javac`（生成 JNI 头）→ 打包 `osgverselib.jar` → CMake 编译
+`libosgverselib.so`（用 SDK 自带的 `find_package(osgVerse)` 找到
+`osgVerse::Verse` / `osgVerse::OSG`，rpath 指向 `<sdk>/lib`）→ 组装
+`osgverse_lib/dist/osgverselib/` → 安装到 `<sketchbook>/libraries/osgverselib`。
+
+### 7.3 使用
+
+```java
+import org.example.osgverselib.*;
+
+OsgVerseView view;
+
+void setup() {
+  size(1280, 720, P2D);            // 必须用 OpenGL 渲染器
+  view = new OsgVerseView(this);   // 自动转发鼠标/键盘事件
+  view.createPbrScene("");         // 空字符串 = SDK 自带的 models/Sponza.osgb
+  // view.createEarthScene("", "");  // 或：高德影像瓦片 + EarthManipulator
+}
+
+void draw() {
+  view.frame();
+  // 之后可以照常画 Processing 的 2D HUD
+}
+
+void keyPressed() {
+  if (key == 'h') view.home();
+  if (key == 's') view.saveScreenshot(sketchPath("shot.ppm"));
+}
+```
+
+`OsgVerseView` 的 API：
+
+| 方法 | 说明 |
+| --- | --- |
+| `frame()` | 渲染一帧。放在 `draw()` 里，建议靠近末尾 |
+| `createPbrScene(path)` | 建 PBR + 延迟渲染场景；`path` 为空时用 SDK 的 `models/Sponza.osgb` |
+| `createEarthScene(orthoUrl, startFile)` | 建数字地球；`orthoUrl` 为空用高德影像瓦片，`startFile` 为空用 `0-0-0.verse_tms` |
+| `setEarthViewpoint(lon, lat, height)` | 地球相机定位到经纬度（度）与距地面高度（米） |
+| `home()` | 复位相机 |
+| `saveScreenshot(path)` | 把当前帧缓冲存为 PPM（截图 / 自动化测试） |
+| `getMode()` | 当前场景类型（`MODE_NONE` / `MODE_PBR` / `MODE_EARTH`） |
+| `mouseMove/mousePress/mouseRelease/mouseScroll` | 手动投递鼠标事件（坐标原点左上、Y 向下；按键 1=左 2=中 3=右） |
+| `keyPress/keyRelease` | 手动投递键盘事件（参数为 `osgGA::GUIEventAdapter::KeySymbol`） |
+
+示例：
+
+- `examples/CppOsgVerseViewer`：Sponza 大厅的 PBR + 延迟渲染（G-Buffer / SSAO /
+  阴影 / 泛光 / 色调映射 / FXAA + HDR 天空盒）。可用环境变量
+  `OSGVERSE_MODEL=<模型路径>` 换成自己的模型。
+- `examples/CppOsgVerseEarth`：TMS 影像瓦片数字地球 + `EarthManipulator` 漫游
+  （默认高德影像瓦片），按 `b` 飞到北京上空。
+
+### 7.4 输入事件与漫游器
+
+和 `osg_lib` 完全一致：`new OsgVerseView(this)` 会把 sketch 注册为 Processing 的
+`mouseEvent` / `keyEvent` 监听器，把事件推进 `GraphicsWindowEmbedded` 的事件队列；
+`Viewer::frame()` 在 `eventTraversal()` 阶段把它们分发给 `CameraManipulator`。
+PBR 场景默认是 `osgGA::TrackballManipulator`，地球场景是
+`osgVerse::EarthManipulator`。要自己控制事件就用 `new OsgVerseView(this, false)`。
+
+### 7.5 实现要点
+
+**（1）延迟管线接管绘制。** osgVerse 的管线会把主相机的 `GraphicsContext` 置空，
+真正绘制由各 stage 相机完成，所以必须覆盖 `Viewer::createRenderer()` 返回
+`pipeline->createRenderer(camera)`（`osgverse_viewer.cpp` 里的 `PipelineViewer`）。
+也正因如此，`saveScreenshot()` 必须用我们自己的 `GraphicsWindowEmbedded` 取
+`State`，而不能用 `camera->getGraphicsContext()`。
+
+**（2）目录变量要自己补齐。** `osgVerse::globalInitialize()` 只会把 `BASE_DIR`
+设成 SDK 根目录，`SHADER_DIR` / `SKYBOX_DIR` / `MISC_DIR` 仍是静态初始化时的
+`"../xxx/"`（osgVerse 假定可执行文件在 `<BASE_DIR>/bin` 下）。嵌入式场景里我们不
+改工作目录，所以初始化后要显式把它们指向 `<SDK>/shaders` 等目录，否则管线找不到
+着色器。另外传入 `argc = 0`，避免 osgVerse 改动 Processing 的工作目录。
+
+**（3）参数对象的构造顺序。** `StandardPipelineParameters(shaderDir, skyboxFile)`
+的构造函数会加载天空盒贴图（HDR）和 IBL 数据，而这张贴图同时是 PBR 光照的
+环境光来源。所以必须**先用它建好参数，再创建 `osgVerse::SkyBox`**；否则
+`setEnvironmentMap(nullptr)`，天空盒会变成一片白，模型因为拿不到 IBL 而全黑。
+
+**（4）窗口尺寸与 resize。** 参数里的 `originWidth/originHeight` 决定管线内部
+缓冲尺寸和主相机视口，必须用当前窗口尺寸。窗口尺寸变化时，延迟管线的内部缓冲
+尺寸在 setup 时就固定了，只能 `clearStagesFromView()` 后重新 `setupStandardPipeline()`
+（`resize()` 里做的就是这个，会有一次短暂卡顿）。
+
+**（5）和 Processing 共用一个 GL 上下文。** `frame()` 里处理 VAO / VBO / EBO /
+Program 绑定隔离的方式与 `osg_lib` 的第 6.6 节完全相同（保存 → 解绑 →
+`state->reset()` → 渲染 → 作废 OSG 的绑定缓存 → 恢复）。
+
+**（6）退出时不崩溃。** `GraphicsWindowEmbedded` 在 OSG 内部被大量对象长期持有
+（实测引用计数 17），因此 `viewer` 析构时 `~GraphicsContext` 并不会被触发，
+contextID 对应的 `osg::ContextData` 会一直留在 libosg 的静态 map 里。而 libosg 里
+静态对象的析构顺序是「`ContextData` 的 map 晚于 `GLExtensions` 的静态数组」，于是
+进程退出时会走
+`~ContextData → ~VertexArrayStateManager → ~VertexArrayState → ~GLExtensions`，
+访问已析构的静态数组 —— 表现为 **JVM 在退出瞬间 SIGSEGV，栈顶是
+`osg::GLExtensions::~GLExtensions()`**。`OsgVerseViewer` 的析构函数因此在释放完
+所有 OSG 对象后，还会调用 `releaseIdleContextData()` 把空闲的
+`osg::ContextData` 提前释放掉。`OsgVerseView` 通过
+`parent.registerMethod("dispose", this)` 挂到 Processing 的退出流程上，正常关闭
+窗口或用 `exit()` 结束 sketch 都会走到这里，无需手工调用。
+
+> 日志里会出现 osgVerse 自带的
+> `Warning: detected OpenGL error 'invalid enumerant' after applying attribute ...`。
+> 这是 osgVerse 的 `LightDrawable` 在 GL Core 下仍会尝试应用固定管线的
+> `GL_LIGHTING`（core profile 里的非法枚举）导致的，用官方 `osgVerse_Viewer`
+> 跑同样会报，不影响显示。`osgverse_lib` 默认把 OSG 的 GL 错误检查设成
+> 「每个属性只报一次」，避免逐帧刷屏。
 

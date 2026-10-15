@@ -1,68 +1,34 @@
-# Prerequisites
-*.d
+# === Java / Gradle ===
+build/
+*.class
+.gradle/
 
-# Compiled Object files
-*.slo
-*.lo
+# === CMake / C++ ===
+cpp/build/
+osg_lib/build/
+**/CMakeCache.txt
+**/CMakeFiles/
+**/cmake_install.cmake
+**/Makefile
 *.o
 *.obj
 
-# Precompiled Headers
-*.gch
-*.pch
+# === Native build outputs ===
+native/linux-amd64/
+native/linux-aarch64/
+native/macosx-*/
+native/include/
 
-# Linker files
-*.ilk
+# === OSG lib build outputs ===
+osg_lib/native/
 
-# Debugger Files
-*.pdb
+# === Assembled distribution ===
+dist/
 
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
-*.so.*
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
-
-# Executables
-*.exe
-*.out
-*.app
-
-# Build directories
-build/
-Build/
-build-*/
-
-# CMake generated files
-CMakeFiles/
-CMakeCache.txt
-cmake_install.cmake
-Makefile
-install_manifest.txt
-compile_commands.json
-
-# Temporary files
-*.tmp
-*.log
-*.bak
+# === IDE / OS ===
+.vscode/
+.idea/
 *.swp
-
-# vcpkg
-vcpkg_installed/
-
-# debug information files
-*.dwo
-
-# test output & cache
-Testing/
-.cache/
+*.swo
+*~
+.DS_Store

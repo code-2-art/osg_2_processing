@@ -7,17 +7,47 @@
 #include <cstdio>
 #include <string>
 
+#include <osgDB/Registry>
+
 #include "osg_viewer.h"
 
 #include "org_example_osglib_NativeOsgCore.h"
 
 namespace {
 
+#ifdef _WIN32
+#include <windows.h>
+
+// 把 OSG 插件搜索路径设为 osglib.dll 自身所在目录，使 osgPlugins-<ver> 自包含可用，
+// 而不依赖编译期硬编码的 SDK bin 路径。OSG 的 osgDB 会用相对路径
+// "osgPlugins-<ver>/osgdb_<ext>.dll" 动态加载插件，加载器只搜索 CWD 与 PATH，
+// 因此运行时除插件路径外，还需要把 native 目录加入进程 PATH（见 build.ps1 / run_processing.ps1）。
+void registerOsgPluginDir() {
+    HMODULE hm = nullptr;
+    if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                               GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           reinterpret_cast<LPCWSTR>(&registerOsgPluginDir),
+                           &hm) && hm) {
+        wchar_t buf[MAX_PATH] = {0};
+        DWORD n = GetModuleFileNameW(hm, buf, MAX_PATH);
+        if (n) {
+            std::wstring wide(buf, n);
+            auto pos = wide.find_last_of(L"\\/");
+            if (pos != std::wstring::npos) {
+                std::string dir(wide.begin(), wide.end());
+                dir = dir.substr(0, pos);
+                osgDB::Registry::instance()->getLibraryFilePathList().push_back(dir);
+            }
+        }
+    }
+}
+#endif
+
+}  // namespace
+
 jstring toJString(JNIEnv* env, const std::string& text) {
     return env->NewStringUTF(text.c_str());
 }
-
-}  // namespace
 
 extern "C" JNIEXPORT jlong JNICALL
 Java_org_example_osglib_NativeOsgCore_nativeCreateViewer(JNIEnv*, jclass,
@@ -127,3 +157,12 @@ Java_org_example_osglib_NativeOsgCore_nativeKeyRelease(JNIEnv*, jclass, jlong ha
     auto* v = reinterpret_cast<osglib::OsgViewer*>(handle);
     if (v) v->keyRelease(key);
 }
+
+// 在 osglib.dll 被 JVM 加载时尽早把 OSG 插件路径设为 native 目录，
+// 保证后续（懒加载的）模型/图片插件能从 osgPlugins-<ver> 找到。
+#ifdef _WIN32
+extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM*, void*) {
+    registerOsgPluginDir();
+    return JNI_VERSION_1_8;
+}
+#endif

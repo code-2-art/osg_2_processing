@@ -39,3 +39,6 @@ core.*
 *.swo
 *~
 .DS_Store
+
+# === Debug-only diagnostic scratch dir (not part of the deliverable) ===
+jnitest2/

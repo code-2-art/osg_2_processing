@@ -80,9 +80,16 @@ void ensureGlobalInit() {
     if (done) return;
     done = true;
 
-    // 先加上 SDK 的 lib 目录，globalInitialize() 里按名字加载的插件才找得到
+    // 先加上 SDK 的插件目录，globalInitialize() 里按名字加载的插件才找得到。
+    // OSG 插件在 Linux 下位于 <sdk>/lib/osgPlugins-<版本>/，Windows 下位于
+    // <sdk>/bin/osgPlugins-<版本>/（由 CMake 的 OSGVERSE_PLUGIN_DIR 指定）。
+#ifdef OSGVERSE_PLUGIN_DIR
+    osgDB::Registry::instance()->getLibraryFilePathList().push_back(
+        std::string(OSGVERSE_PLUGIN_DIR));
+#else
     osgDB::Registry::instance()->getLibraryFilePathList().push_back(
         std::string(OSGVERSE_SDK_ROOT) + "/lib");
+#endif
 
     osgVerse::InitParameters params = osgVerse::defaultInitParameters();
     params.verseBaseDir = OSGVERSE_SDK_ROOT;
@@ -105,7 +112,11 @@ void ensureGlobalInit() {
     // 固定管线的 GL_LIGHTING（非法枚举），如果逐次检查就会每帧往控制台刷警告。
     // 改成「每个属性只报一次」，既不丢诊断信息，也不会刷屏。
     if (!getenv("OSG_GL_ERROR_CHECKING")) {
+#ifdef _WIN32
+        _putenv_s("OSG_GL_ERROR_CHECKING", "ONCE_PER_ATTRIBUTE");
+#else
         setenv("OSG_GL_ERROR_CHECKING", "ONCE_PER_ATTRIBUTE", 0);
+#endif
     }
 }
 
